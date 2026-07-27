@@ -1,8 +1,10 @@
 # Clinical Trials Evidence Dashboard
 
+Live Demo - portfolio-zain-1812.vercel.app
+
 A structured evidence-review dashboard for clinical trial data, built directly on top of the
 public [ClinicalTrials.gov v2 API](https://clinicaltrials.gov/data-api/api). It searches the live
-registry of 500,000+ studies and presents each trial as an enhanced, expandable abstract — summary
+registry of 500,000+ studies and presents each trial as an enhanced, expandable abstract - summary
 first, methodology and validity signals on demand.
 
 ![Tech](https://img.shields.io/badge/React-18-149eca) ![Tech](https://img.shields.io/badge/TypeScript-5-3178c6) ![Tech](https://img.shields.io/badge/Tailwind-3-38bdf8) ![Tech](https://img.shields.io/badge/Vite-5-646cff)
