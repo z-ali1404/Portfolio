@@ -1,12 +1,15 @@
+import { useRef } from "react";
 import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
 import { SearchBar } from "@/components/search/SearchBar";
 import { FilterBar } from "@/components/search/FilterBar";
 import { ResultsSummary } from "@/components/results/ResultsSummary";
 import { TrialList } from "@/components/results/TrialList";
+import { SummaryView } from "@/components/summary/SummaryView";
 import { useTrialSearch } from "@/hooks/useTrialSearch";
 
 export default function App() {
+  const trialListRef = useRef<HTMLDivElement>(null);
   const {
     filters,
     updateFilters,
@@ -36,7 +39,17 @@ export default function App() {
           />
         </section>
 
-        <section className="mt-6 space-y-4">
+        {hasQuery && (
+          <section className="mt-8">
+            <SummaryView
+              filters={filters}
+              onUpdateFilters={updateFilters}
+              onDrillDown={() => trialListRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+            />
+          </section>
+        )}
+
+        <section className="mt-8 space-y-5" ref={trialListRef}>
           {hasQuery && (
             <ResultsSummary filters={filters} totalCount={totalCount} loadedCount={studies.length} />
           )}

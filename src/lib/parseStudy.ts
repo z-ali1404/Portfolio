@@ -37,6 +37,9 @@ function nonEmptyStrings(values: (string | undefined)[]): string[] {
 
 export function parseStudySummary(raw: RawStudy): TrialSummary {
   const protocol = raw.protocolSection;
+  const countries = nonEmptyStrings(
+    safeArray(protocol?.contactsLocationsModule?.locations).map((l) => l.country)
+  );
 
   return {
     nctId: protocol?.identificationModule?.nctId ?? "UNKNOWN",
@@ -59,6 +62,13 @@ export function parseStudySummary(raw: RawStudy): TrialSummary {
     lastUpdatePostDate: protocol?.statusModule?.lastUpdatePostDateStruct?.date,
     briefSummary: protocol?.descriptionModule?.briefSummary,
     hasResults: raw.hasResults === true,
+    allocation: protocol?.designModule?.designInfo?.allocation,
+    masking: protocol?.designModule?.designInfo?.maskingInfo?.masking,
+    armGroupTypes: nonEmptyStrings(
+      safeArray(protocol?.armsInterventionsModule?.armGroups).map((a) => a.type)
+    ),
+    sponsorClass: protocol?.sponsorCollaboratorsModule?.leadSponsor?.class,
+    countries: Array.from(new Set(countries)),
   };
 }
 

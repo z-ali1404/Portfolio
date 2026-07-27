@@ -28,12 +28,27 @@ function field<T extends string>(value: T, stated = true): EvidenceField<T> {
   return { value, confidence: stated ? "stated" : "not-stated" };
 }
 
+/**
+ * Minimal set of registry fields these classifiers need. `TrialDetail` and
+ * `TrialSummary` both carry this data (in slightly different shapes), so the
+ * per-card `buildEvidenceSnapshot` and the whole-result-set aggregation in
+ * `lib/summaryAggregation.ts` share exactly one implementation of each rule
+ * instead of two copies that could drift apart.
+ */
+export interface DesignSignals {
+  studyType?: string;
+  allocation?: string;
+  masking?: string;
+  armGroupTypes: string[];
+  phases: string[];
+}
+
 /** Randomization: read from designModule.designInfo.allocation. */
-function assessRandomization(detail: TrialDetail): EvidenceField {
-  if (detail.studyType === "OBSERVATIONAL") {
+export function assessRandomization(signals: DesignSignals): EvidenceField {
+  if (signals.studyType === "OBSERVATIONAL") {
     return field("Not applicable (observational study)");
   }
-  switch (detail.designInfo.allocation) {
+  switch (signals.allocation) {
     case "RANDOMIZED":
       return field("Randomized");
     case "NON_RANDOMIZED":
@@ -44,8 +59,8 @@ function assessRandomization(detail: TrialDetail): EvidenceField {
 }
 
 /** Blinding: read from designModule.designInfo.maskingInfo.masking. */
-function assessBlinding(detail: TrialDetail): EvidenceField {
-  switch (detail.designInfo.masking) {
+export function assessBlinding(signals: DesignSignals): EvidenceField {
+  switch (signals.masking) {
     case "NONE":
       return field("Open-label");
     case "SINGLE":
@@ -62,13 +77,13 @@ function assessBlinding(detail: TrialDetail): EvidenceField {
 }
 
 /** Comparator / control structure: inferred from arm group types. */
-function assessComparator(detail: TrialDetail): EvidenceField {
-  const armTypes = detail.armGroups.map((a) => a.type).filter(Boolean);
+export function assessComparator(signals: DesignSignals): EvidenceField {
+  const armTypes = signals.armGroupTypes.filter(Boolean);
 
-  if (detail.armGroups.length === 0) {
+  if (armTypes.length === 0) {
     return field(NOT_STATED, false);
   }
-  if (detail.armGroups.length === 1) {
+  if (armTypes.length === 1) {
     return field("Single-arm");
   }
   if (armTypes.includes("PLACEBO_COMPARATOR")) {
@@ -87,7 +102,7 @@ function assessComparator(detail: TrialDetail): EvidenceField {
 }
 
 /** Enrollment scale: fixed, documented thresholds over enrollmentCount. */
-function classifyEnrollmentScale(enrollmentCount?: number): EvidenceField {
+export function classifyEnrollmentScale(enrollmentCount?: number): EvidenceField {
   if (enrollmentCount === undefined || enrollmentCount === null || Number.isNaN(enrollmentCount)) {
     return field(NOT_STATED, false);
   }
@@ -97,11 +112,11 @@ function classifyEnrollmentScale(enrollmentCount?: number): EvidenceField {
 }
 
 /** Phase context: derived from the phases array, highest phase wins. */
-function classifyPhaseContext(detail: TrialDetail): EvidenceField {
-  if (detail.studyType === "OBSERVATIONAL") {
+export function classifyPhaseContext(signals: DesignSignals): EvidenceField {
+  if (signals.studyType === "OBSERVATIONAL") {
     return field("Not applicable (observational study)");
   }
-  const phases = detail.phases;
+  const phases = signals.phases;
   if (phases.includes("PHASE4")) return field("Post-marketing (Phase 4)");
   if (phases.includes("PHASE3")) return field("Later-phase / confirmatory (Phase 3)");
   if (phases.includes("PHASE2")) return field("Mid-phase / developmental (Phase 2)");
@@ -109,6 +124,16 @@ function classifyPhaseContext(detail: TrialDetail): EvidenceField {
     return field("Early-phase (Phase 1)");
   }
   return field(NOT_STATED, false);
+}
+
+function toDesignSignals(detail: TrialDetail): DesignSignals {
+  return {
+    studyType: detail.studyType,
+    allocation: detail.designInfo.allocation,
+    masking: detail.designInfo.masking,
+    armGroupTypes: detail.armGroups.map((a) => a.type).filter((t): t is string => Boolean(t)),
+    phases: detail.phases,
+  };
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -172,11 +197,12 @@ function buildInterpretationNote(detail: TrialDetail, snapshot: Omit<EvidenceSna
 }
 
 export function buildEvidenceSnapshot(detail: TrialDetail): EvidenceSnapshot {
-  const randomization = assessRandomization(detail);
-  const blinding = assessBlinding(detail);
-  const comparator = assessComparator(detail);
+  const signals = toDesignSignals(detail);
+  const randomization = assessRandomization(signals);
+  const blinding = assessBlinding(signals);
+  const comparator = assessComparator(signals);
   const enrollmentScale = classifyEnrollmentScale(detail.enrollmentCount);
-  const phaseContext = classifyPhaseContext(detail);
+  const phaseContext = classifyPhaseContext(signals);
   const recruitmentState = describeRecruitmentState(detail.overallStatus);
 
   const cautionFlag = detail.overallStatus ? CAUTION_STATUSES.has(detail.overallStatus) : false;

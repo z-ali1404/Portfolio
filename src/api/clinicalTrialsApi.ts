@@ -1,4 +1,5 @@
-import type { RawStudiesResponse, RawStudy, TrialSearchParams } from "@/types/clinicalTrials";
+import type { RawStudiesResponse, RawStudy, TrialSearchParams, TrialSummary } from "@/types/clinicalTrials";
+import { parseStudySummary } from "@/lib/parseStudy";
 
 /**
  * Thin client for the ClinicalTrials.gov v2 API.
@@ -29,6 +30,10 @@ const SUMMARY_FIELDS = [
   // weight) because the client-side relevance re-ranker needs each study's
   // intervention list to score exact/near-exact drug-name matches.
   "protocolSection.armsInterventionsModule",
+  // Needed for the Summary View's geographic spread section. Only country
+  // is actually read out of this module (see parseStudySummary), but the
+  // API does not support requesting a sub-field of a module.
+  "protocolSection.contactsLocationsModule",
   "hasResults",
 ].join(",");
 
@@ -121,6 +126,59 @@ export async function searchStudies(
   }
 
   return (await response.json()) as RawStudiesResponse;
+}
+
+/** Server page size used specifically when gathering the full set for the Summary View. */
+const SUMMARY_FETCH_PAGE_SIZE = 100;
+
+export interface SummaryFetchResult {
+  studies: TrialSummary[];
+  /** Total trials matching the query on the server, which may exceed `studies.length` if the cap was hit. */
+  totalCount: number;
+  /** True if `studies.length` was cut short by `cap` rather than running out of pages. */
+  isCapped: boolean;
+}
+
+/**
+ * Gathers up to `cap` studies for a query by following `nextPageToken` across
+ * as many requests as needed, for the Summary View's whole-result-set
+ * aggregation. This is intentionally separate from the paginated fetch that
+ * powers the visible trial list — the two have different goals (a fast,
+ * fully-detailed first page vs. a complete-enough sample of summary fields).
+ */
+export async function fetchAllStudiesForSummary(
+  params: Omit<TrialSearchParams, "pageSize" | "pageToken">,
+  cap: number,
+  signal?: AbortSignal
+): Promise<SummaryFetchResult> {
+  const studies: TrialSummary[] = [];
+  let pageToken: string | undefined;
+  let totalCount = 0;
+
+  // Upper bound on requests, purely as a defensive guard against an
+  // unexpected API response looping forever (e.g. a token that never clears).
+  const maxRequests = Math.ceil(cap / SUMMARY_FETCH_PAGE_SIZE) + 1;
+
+  for (let i = 0; i < maxRequests; i++) {
+    const response = await searchStudies(
+      { ...params, pageSize: SUMMARY_FETCH_PAGE_SIZE, pageToken },
+      signal
+    );
+    totalCount = response.totalCount ?? totalCount;
+    studies.push(...(response.studies ?? []).map(parseStudySummary));
+
+    pageToken = response.nextPageToken;
+    if (!pageToken || studies.length >= cap) break;
+  }
+
+  const trimmed = studies.slice(0, cap);
+  const isCapped = totalCount > trimmed.length;
+
+  return {
+    studies: trimmed,
+    totalCount,
+    isCapped,
+  };
 }
 
 /** Fetches the complete study record — used when a trial card is expanded. */

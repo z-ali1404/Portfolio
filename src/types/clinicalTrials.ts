@@ -241,6 +241,16 @@ export interface TrialSummary {
   matchScore?: number;
   /** Human-readable badge text for the matchScore, e.g. "Exact drug match". */
   matchLabel?: string;
+  // The following are present in SUMMARY_FIELDS (designModule / armsInterventionsModule /
+  // sponsorCollaboratorsModule / contactsLocationsModule) but were not previously surfaced
+  // on TrialSummary. They exist purely so the Summary View can aggregate design/bias/sponsor/
+  // geography signals across a result set without an extra per-trial detail fetch.
+  allocation?: string;
+  masking?: string;
+  armGroupTypes: string[];
+  sponsorClass?: string;
+  /** De-duplicated list of countries where this trial has a site, if location data was returned. */
+  countries: string[];
 }
 
 /**

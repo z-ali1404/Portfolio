@@ -79,19 +79,10 @@ export function TrialCard({ summary }: { summary: TrialSummary }) {
         {summary.conditions.length > 0 && (
           <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
             <span className="font-medium text-slate-500 dark:text-slate-400">Conditions: </span>
-            {summary.conditions.slice(0, 4).join(", ")}
+            {summary.conditions.slice(0, 2).join(", ")}
+            {summary.conditions.length > 2 && ` +${summary.conditions.length - 2} more`}
           </p>
         )}
-
-        {summary.briefSummary && (
-          <p className="mt-2 text-sm leading-relaxed text-slate-500 dark:text-slate-400">
-            {truncate(summary.briefSummary, 260)}
-          </p>
-        )}
-
-        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-400 dark:text-slate-500">
-          <span>{formatEnrollment(summary.enrollmentCount)}</span>
-        </div>
 
         <button
           type="button"
@@ -119,6 +110,14 @@ export function TrialCard({ summary }: { summary: TrialSummary }) {
           )}
           {detail && detailState === "idle" && (
             <div>
+              <div className="py-4 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
+                <span>{formatEnrollment(summary.enrollmentCount)}</span>
+              </div>
+              {summary.briefSummary && (
+                <p className="pb-4 text-sm leading-relaxed text-slate-500 dark:text-slate-400">
+                  {truncate(summary.briefSummary, 260)}
+                </p>
+              )}
               <DetailSection title="Evidence Review" defaultOpen>
                 <EvidenceReviewPanel detail={detail} />
               </DetailSection>
