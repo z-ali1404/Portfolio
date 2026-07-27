@@ -25,6 +25,10 @@ const SUMMARY_FIELDS = [
   "protocolSection.conditionsModule",
   "protocolSection.designModule",
   "protocolSection.descriptionModule",
+  // Interventions are included in the summary payload (despite the extra
+  // weight) because the client-side relevance re-ranker needs each study's
+  // intervention list to score exact/near-exact drug-name matches.
+  "protocolSection.armsInterventionsModule",
   "hasResults",
 ].join(",");
 
@@ -72,6 +76,11 @@ function buildSearchQuery(params: TrialSearchParams): URLSearchParams {
   const advanced = buildAdvancedFilter(params);
   if (advanced) query.set("filter.advanced", advanced);
 
+  // The API has no literal "relevance" sort value — relevance-ranked order
+  // (best match to query.term/query.intr/query.cond first) is what you get
+  // by omitting `sort` entirely. Only send `sort` for the explicit
+  // field-based options below; leaving it unset is the deliberate way to
+  // request relevance ordering, not an oversight.
   if (params.sort !== "relevance") {
     query.set("sort", params.sort);
   }

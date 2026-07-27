@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ClinicalTrialsApiError, searchStudies } from "@/api/clinicalTrialsApi";
 import { parseStudySummary } from "@/lib/parseStudy";
-import type { SortOption, TrialSearchParams, TrialSummary } from "@/types/clinicalTrials";
+import { debugLogInterventions, rerankByRelevance } from "@/lib/relevanceRanking";
+import type { SearchMode, SortOption, TrialSearchParams, TrialSummary } from "@/types/clinicalTrials";
 
 const PAGE_SIZE = 20;
 const DEBOUNCE_MS = 450;
@@ -18,6 +19,8 @@ export interface TrialFilters {
   phases: string[];
   studyType: "" | "INTERVENTIONAL" | "OBSERVATIONAL";
   sort: SortOption;
+  /** Which field the main search bar is currently routing free text into. */
+  mode: SearchMode;
 }
 
 const EMPTY_FILTERS: TrialFilters = {
@@ -30,7 +33,13 @@ const EMPTY_FILTERS: TrialFilters = {
   phases: [],
   studyType: "",
   sort: "relevance",
+  mode: "auto",
 };
+
+/** The term the client-side relevance re-ranker should score results against. */
+function rerankTerm(filters: TrialFilters): string {
+  return filters.intervention || filters.term || "";
+}
 
 function toSearchParams(filters: TrialFilters, pageToken?: string): TrialSearchParams {
   return {
@@ -90,7 +99,13 @@ export function useTrialSearch() {
     setErrorMessage(undefined);
     try {
       const response = await searchStudies(toSearchParams(nextFilters), controller.signal);
-      setStudies((response.studies ?? []).map(parseStudySummary));
+      const parsed = (response.studies ?? []).map(parseStudySummary);
+      const term = rerankTerm(nextFilters);
+      const ranked = term ? rerankByRelevance(parsed, term) : parsed;
+      if (term && ranked.some((s) => (s.matchScore ?? 0) === 0)) {
+        debugLogInterventions(term, ranked.filter((s) => (s.matchScore ?? 0) === 0));
+      }
+      setStudies(ranked);
       setTotalCount(response.totalCount);
       setNextPageToken(response.nextPageToken);
       setStatus("success");
@@ -120,7 +135,12 @@ export function useTrialSearch() {
     setStatus("loading-more");
     try {
       const response = await searchStudies(toSearchParams(filters, nextPageToken));
-      setStudies((prev) => [...prev, ...(response.studies ?? []).map(parseStudySummary)]);
+      const parsed = (response.studies ?? []).map(parseStudySummary);
+      const term = rerankTerm(filters);
+      setStudies((prev) => {
+        const combined = [...prev, ...parsed];
+        return term ? rerankByRelevance(combined, term) : combined;
+      });
       setNextPageToken(response.nextPageToken);
       setStatus("success");
     } catch (err) {

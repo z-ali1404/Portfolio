@@ -237,6 +237,10 @@ export interface TrialSummary {
   lastUpdatePostDate?: string;
   briefSummary?: string;
   hasResults: boolean;
+  /** Client-side relevance re-rank score (0-3) — see `lib/relevanceRanking.ts`. Undefined when no search term was active. */
+  matchScore?: number;
+  /** Human-readable badge text for the matchScore, e.g. "Exact drug match". */
+  matchLabel?: string;
 }
 
 /**
@@ -291,6 +295,9 @@ export type SortOption =
   | "LastUpdatePostDate:desc"
   | "EnrollmentCount:desc"
   | "StartDate:desc";
+
+/** Which field the main search bar routes free text into. */
+export type SearchMode = "auto" | "intervention" | "condition" | "term";
 
 export interface TrialSearchParams {
   term?: string;

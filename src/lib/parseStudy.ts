@@ -46,7 +46,9 @@ export function parseStudySummary(raw: RawStudy): TrialSummary {
     studyType: protocol?.designModule?.studyType,
     phases: safeArray(protocol?.designModule?.phases),
     conditions: safeArray(protocol?.conditionsModule?.conditions),
-    interventionNames: [], // populated in detail view; list payload omits armsInterventionsModule
+    interventionNames: nonEmptyStrings(
+      safeArray(protocol?.armsInterventionsModule?.interventions).map((iv) => iv.name)
+    ),
     leadSponsor: protocol?.sponsorCollaboratorsModule?.leadSponsor?.name,
     collaborators: nonEmptyStrings(
       safeArray(protocol?.sponsorCollaboratorsModule?.collaborators).map((c) => c.name)
