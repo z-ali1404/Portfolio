@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import type { TrialFilters } from "@/hooks/useTrialSearch";
 import { AdvancedSearch } from "@/components/search/AdvancedSearch";
-import { looksLikeDrugName } from "@/lib/searchModeHeuristic";
+import { classifyFreeText } from "@/lib/queryClassifier";
 import type { SearchMode } from "@/types/clinicalTrials";
 
 const NCT_ID_PATTERN = /^NCT\d{8}$/i;
@@ -28,29 +28,52 @@ const MODE_PLACEHOLDERS: Record<SearchMode, string> = {
 /**
  * One search box, routed by field rather than always going to free-text
  * `query.term`. It recognizes an NCT ID (e.g. NCT04280705) and routes to
- * the exact-match `query.id` param. Otherwise, in "auto" mode it guesses
- * whether the input looks like a drug/intervention name (routes to
- * `query.intr`) or general text (routes to `query.term`); the mode dropdown
- * lets the user override that guess explicitly.
+ * the exact-match `query.id` param. Otherwise, in "auto" mode it tokenizes
+ * the input and classifies each token against the same structured fields
+ * Advanced Search exposes — so "paracetamol headache" becomes
+ * Intervention=paracetamol AND Condition=headache in one search, not a
+ * single flat full-text scan. See `lib/queryClassifier.ts` for why this is
+ * a rule-based classifier rather than a fuzzy-search library: this app's
+ * data source is the live, paginated ClinicalTrials.gov registry, not a
+ * local corpus, so a library like Fuse.js could only re-rank whatever page
+ * was already fetched — it can't route the query to the server's own
+ * Condition/Intervention fields the way a classifier can. The mode
+ * dropdown still lets the user force everything into one specific field.
  */
 export function SearchBar({ filters, onUpdate }: SearchBarProps) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const rawValue = filters.nctId || filters.intervention || filters.condition || filters.term;
+  // `query` is the literal text as typed — used for the input's displayed value, since auto
+  // mode can now populate condition/intervention/term simultaneously from one query and any
+  // single one of them is no longer guaranteed to hold the full original string. Falls back to
+  // the individual fields for the case where Advanced Search was used directly, without typing
+  // in this box first.
+  const rawValue = filters.nctId || filters.query || filters.intervention || filters.condition || filters.term;
 
   function routeValue(value: string, mode: SearchMode) {
     const trimmed = value.trim();
     if (NCT_ID_PATTERN.test(trimmed)) {
-      onUpdate({ nctId: trimmed.toUpperCase(), term: "", condition: "", intervention: "" });
+      onUpdate({ nctId: trimmed.toUpperCase(), query: "", term: "", condition: "", intervention: "" });
       return;
     }
 
-    const effectiveMode = mode === "auto" ? (looksLikeDrugName(trimmed) ? "intervention" : "term") : mode;
+    if (mode === "auto") {
+      const classified = classifyFreeText(trimmed);
+      onUpdate({
+        nctId: "",
+        query: value,
+        term: classified.term,
+        condition: classified.condition,
+        intervention: classified.intervention,
+      });
+      return;
+    }
 
     onUpdate({
       nctId: "",
-      term: effectiveMode === "term" ? value : "",
-      condition: effectiveMode === "condition" ? value : "",
-      intervention: effectiveMode === "intervention" ? value : "",
+      query: value,
+      term: mode === "term" ? value : "",
+      condition: mode === "condition" ? value : "",
+      intervention: mode === "intervention" ? value : "",
     });
   }
 

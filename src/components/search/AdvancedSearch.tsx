@@ -46,7 +46,7 @@ export function AdvancedSearch({ filters, onUpdate }: AdvancedSearchProps) {
         <input
           type="text"
           value={filters.nctId}
-          onChange={(e) => onUpdate({ nctId: e.target.value.toUpperCase(), term: "" })}
+          onChange={(e) => onUpdate({ nctId: e.target.value.toUpperCase(), query: "", term: "" })}
           placeholder="e.g. NCT04280705"
           className={FIELD_CLASSES}
         />

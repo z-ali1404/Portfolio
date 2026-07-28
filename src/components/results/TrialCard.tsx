@@ -55,7 +55,7 @@ export function TrialCard({ summary }: { summary: TrialSummary }) {
           <Badge tone="neutral">{formatStudyType(summary.studyType)}</Badge>
           {summary.hasResults && <Badge tone="accent">Results posted</Badge>}
           {summary.matchLabel && (
-            <Badge tone={summary.matchScore === 3 ? "accent" : "neutral"}>{summary.matchLabel}</Badge>
+            <Badge tone={(summary.matchScore ?? 0) >= 3 ? "accent" : "neutral"}>{summary.matchLabel}</Badge>
           )}
         </div>
 

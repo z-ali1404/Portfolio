@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ClinicalTrialsApiError, searchStudies } from "@/api/clinicalTrialsApi";
 import { parseStudySummary } from "@/lib/parseStudy";
-import { debugLogInterventions, rerankByRelevance } from "@/lib/relevanceRanking";
+import { debugLogInterventions, rerankByRelevance, type FieldTerms } from "@/lib/relevanceRanking";
 import type { SearchMode, SortOption, TrialSearchParams, TrialSummary } from "@/types/clinicalTrials";
 
 const PAGE_SIZE = 20;
@@ -10,6 +10,10 @@ const DEBOUNCE_MS = 450;
 export type SearchStatus = "idle" | "loading" | "loading-more" | "success" | "error";
 
 export interface TrialFilters {
+  /** Literal text currently in the main search box, kept in sync regardless of how it gets
+   *  classified into the fields below — this is what the input displays, since `term`/
+   *  `condition`/`intervention` can now all be populated simultaneously from one query. */
+  query: string;
   term: string;
   condition: string;
   intervention: string;
@@ -24,6 +28,7 @@ export interface TrialFilters {
 }
 
 const EMPTY_FILTERS: TrialFilters = {
+  query: "",
   term: "",
   condition: "",
   intervention: "",
@@ -36,9 +41,12 @@ const EMPTY_FILTERS: TrialFilters = {
   mode: "auto",
 };
 
-/** The term the client-side relevance re-ranker should score results against. */
-function rerankTerm(filters: TrialFilters): string {
-  return filters.intervention || filters.term || "";
+/** The fields the client-side relevance re-ranker should score results against — the same
+ *  three structured fields Advanced Search exposes, so a normal-search query that got split
+ *  across Intervention + Condition is scored and ranked exactly like an equivalent Advanced
+ *  Search query would be. */
+function rerankFields(filters: TrialFilters): FieldTerms {
+  return { intervention: filters.intervention, condition: filters.condition, term: filters.term };
 }
 
 function toSearchParams(filters: TrialFilters, pageToken?: string): TrialSearchParams {
@@ -100,10 +108,10 @@ export function useTrialSearch() {
     try {
       const response = await searchStudies(toSearchParams(nextFilters), controller.signal);
       const parsed = (response.studies ?? []).map(parseStudySummary);
-      const term = rerankTerm(nextFilters);
-      const ranked = term ? rerankByRelevance(parsed, term) : parsed;
-      if (term && ranked.some((s) => (s.matchScore ?? 0) === 0)) {
-        debugLogInterventions(term, ranked.filter((s) => (s.matchScore ?? 0) === 0));
+      const fields = rerankFields(nextFilters);
+      const ranked = rerankByRelevance(parsed, fields);
+      if (fields.intervention && ranked.some((s) => (s.matchScore ?? 0) === 0)) {
+        debugLogInterventions(fields.intervention, ranked.filter((s) => (s.matchScore ?? 0) === 0));
       }
       setStudies(ranked);
       setTotalCount(response.totalCount);
@@ -136,10 +144,10 @@ export function useTrialSearch() {
     try {
       const response = await searchStudies(toSearchParams(filters, nextPageToken));
       const parsed = (response.studies ?? []).map(parseStudySummary);
-      const term = rerankTerm(filters);
+      const fields = rerankFields(filters);
       setStudies((prev) => {
         const combined = [...prev, ...parsed];
-        return term ? rerankByRelevance(combined, term) : combined;
+        return rerankByRelevance(combined, fields);
       });
       setNextPageToken(response.nextPageToken);
       setStatus("success");
