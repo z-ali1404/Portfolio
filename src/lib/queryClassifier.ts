@@ -78,14 +78,94 @@ const CONDITION_WORDS = new Set([
 // explicit dictionary above without guessing arbitrary vocabulary.
 const CONDITION_SUFFIX_PATTERN = /(itis|osis|oma|algia|emia|opathy|trophy)$/i;
 
-export type TokenField = "intervention" | "condition" | "unclassified";
+/**
+ * Words that qualify/modify a condition rather than naming one outright —
+ * anatomical terms, severity, staging, chronicity ("muscular dystrophy",
+ * "type 2 diabetes", "chronic kidney disease"). These exist specifically
+ * because a length/shape-based "looks like a drug name" guess (see
+ * `looksLikeDrugName`) genuinely cannot tell "muscular" apart from
+ * "prednisone" — both are unlisted, 6+ letter, all-alphabetic words with
+ * identical shape. Only an explicit word list resolves that ambiguity.
+ * Words in this set are NEVER treated as a standalone intervention guess;
+ * they only ever attach to an adjacent condition/intervention word. This
+ * list is intentionally a practical, non-exhaustive best effort (like the
+ * condition dictionary above), not a medical ontology.
+ */
+const MODIFIER_WORDS = new Set([
+  "type",
+  "stage",
+  "grade",
+  "early",
+  "late",
+  "advanced",
+  "mild",
+  "moderate",
+  "severe",
+  "chronic",
+  "acute",
+  "recurrent",
+  "refractory",
+  "persistent",
+  "primary",
+  "secondary",
+  "generalized",
+  "localized",
+  "congenital",
+  "hereditary",
+  "genetic",
+  "autoimmune",
+  "inflammatory",
+  "degenerative",
+  "progressive",
+  "muscular",
+  "muscle",
+  "cardiac",
+  "heart",
+  "renal",
+  "kidney",
+  "hepatic",
+  "liver",
+  "pulmonary",
+  "lung",
+  "neurological",
+  "nerve",
+  "vascular",
+  "skeletal",
+  "bone",
+  "joint",
+  "metabolic",
+  "respiratory",
+  "gastrointestinal",
+  "stomach",
+  "psychiatric",
+  "mental",
+  "spinal",
+  "back",
+  "chest",
+  "abdominal",
+]);
 
-/** Classifies a single whitespace-delimited token by field. */
+const NUMERIC_PATTERN = /^\d+$/;
+
+export type TokenField = "intervention" | "condition" | "modifier" | "unclassified";
+
+/**
+ * Classifies a single whitespace-delimited token by field.
+ *   - "condition" / "intervention": recognized outright via dictionary/suffix.
+ *   - "modifier": a qualifier word (or bare number, e.g. "2") that always
+ *     attaches to an adjacent condition/intervention and is never itself
+ *     treated as a standalone drug guess.
+ *   - "unclassified": genuinely ambiguous — resolved by position in
+ *     `classifyFreeText` (attaches if adjacent to a recognized field,
+ *     otherwise gets one chance at the shape-based drug guess).
+ */
 export function classifyToken(token: string): TokenField {
+  if (NUMERIC_PATTERN.test(token)) return "modifier";
   const lower = token.toLowerCase();
   if (!/^[a-z][a-z0-9-]*$/i.test(token)) return "unclassified";
   if (CONDITION_WORDS.has(lower) || CONDITION_SUFFIX_PATTERN.test(lower)) return "condition";
   if (DRUG_WORDS.has(lower) || DRUG_SUFFIX_PATTERN.test(lower)) return "intervention";
+  if (MODIFIER_WORDS.has(lower)) return "modifier";
   return "unclassified";
 }
 
@@ -103,19 +183,17 @@ export interface ClassifiedQuery {
  *
  * Real medical queries are usually short noun phrases where a modifier
  * word sits directly next to the field-defining word it describes —
- * "muscle pain", "type 2 diabetes", "chronic kidney disease". Classifying
- * each word in total isolation would strand those modifiers ("muscle",
- * "type", "2") in the generic-text fallback even though the head word
- * ("pain", "diabetes") was correctly recognized, which under-counts and
- * under-ranks results for ANY multi-word condition or intervention name,
- * not just one specific example. So unclassified words are grouped with
- * whichever recognized field-word they sit immediately next to: a run of
- * unclassified words immediately followed by a classified word attaches
- * forward to that word's field (the common "[modifier] [noun]" pattern in
- * English); a trailing run with nothing classified after it attaches
- * backward to whichever field was most recently seen, but only up to 3
- * words, so an unrelated trailing sentence doesn't get silently absorbed
- * into a structured field it has nothing to do with.
+ * "muscular dystrophy", "type 2 diabetes", "chronic kidney disease". A run
+ * of "modifier"/numeric words next to a recognized condition or
+ * intervention word always attaches to it (they're never ambiguous). A
+ * genuinely "unclassified" word next to a recognized field also attaches —
+ * but ONLY if it isn't independently a plausible standalone drug name
+ * (checked via the shape heuristic) — otherwise it's carved out as its own
+ * intervention rather than being swallowed into the adjacent field. This is
+ * what makes "muscular dystrophy prednisone" resolve to
+ * Condition=muscular dystrophy AND Intervention=prednisone in either word
+ * order, instead of the drug name silently absorbing into whichever field
+ * happened to be built most recently.
  */
 export function classifyFreeText(input: string): ClassifiedQuery {
   const tokens = input.trim().split(/\s+/).filter(Boolean);
@@ -133,19 +211,34 @@ export function classifyFreeText(input: string): ClassifiedQuery {
   const intervention: string[] = [];
   const condition: string[] = [];
   const term: string[] = [];
-  let pending: string[] = [];
+  // Each pending entry keeps its original label — critical so a "modifier"
+  // word like "muscular" is never shape-checked at all (it's already known
+  // to be a plain qualifier), while a genuinely "unclassified" word still
+  // gets the standalone-drug-guess check. Losing this distinction is what
+  // would make "muscular" (which also happens to pass the length-based
+  // shape heuristic) get wrongly carved out into intervention.
+  let pending: { word: string; label: TokenField }[] = [];
   let lastField: "intervention" | "condition" | undefined;
 
+  // Carves any pending *unclassified* word that independently looks like a
+  // standalone drug name out into `intervention`; everything else in the
+  // run (modifiers, numbers, non-drug-shaped unclassified words) merges
+  // into `field`.
   const flushPendingTo = (field: "intervention" | "condition") => {
     if (pending.length === 0) return;
-    (field === "intervention" ? intervention : condition).push(...pending);
+    const remainder: string[] = [];
+    for (const { word, label } of pending) {
+      if (label === "unclassified" && looksLikeDrugName(word)) intervention.push(word);
+      else remainder.push(word);
+    }
+    if (remainder.length > 0) (field === "intervention" ? intervention : condition).push(...remainder);
     pending = [];
   };
 
   for (let i = 0; i < tokens.length; i++) {
     const field = labels[i];
-    if (field === "unclassified") {
-      pending.push(tokens[i]);
+    if (field === "unclassified" || field === "modifier") {
+      pending.push({ word: tokens[i], label: field });
       continue;
     }
     flushPendingTo(field);
@@ -154,10 +247,25 @@ export function classifyFreeText(input: string): ClassifiedQuery {
   }
 
   if (pending.length > 0) {
-    if (lastField && pending.length <= 3) {
-      flushPendingTo(lastField);
-    } else {
-      term.push(...pending);
+    // A modifier word (or bare number) here is a trailing qualifier with
+    // nothing after it — still attach it backward to whatever field was
+    // last built, capped at 3 words so an unrelated trailing sentence
+    // doesn't get silently absorbed. A plain unclassified word gets one
+    // more chance at the standalone drug guess before falling back to it.
+    const remainder: string[] = [];
+    for (const { word, label } of pending) {
+      if (label === "unclassified" && looksLikeDrugName(word)) {
+        intervention.push(word);
+      } else {
+        remainder.push(word);
+      }
+    }
+    if (remainder.length > 0) {
+      if (lastField && remainder.length <= 3) {
+        (lastField === "intervention" ? intervention : condition).push(...remainder);
+      } else {
+        term.push(...remainder);
+      }
     }
   }
 
