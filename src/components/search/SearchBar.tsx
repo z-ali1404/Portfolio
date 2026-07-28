@@ -42,6 +42,11 @@ const MODE_PLACEHOLDERS: Record<SearchMode, string> = {
  */
 export function SearchBar({ filters, onUpdate }: SearchBarProps) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  // True when auto-detect couldn't match any word in a multi-word query against its
+  // dictionaries at all, so the search fell back to plain full-text rather than a precise
+  // Condition/Intervention split — surfaced as a hint rather than silently returning a lower-
+  // precision result the user has no way of noticing.
+  const [unrecognizedQuery, setUnrecognizedQuery] = useState(false);
   // `query` is the literal text as typed — used for the input's displayed value, since auto
   // mode can now populate condition/intervention/term simultaneously from one query and any
   // single one of them is no longer guaranteed to hold the full original string. Falls back to
@@ -53,6 +58,7 @@ export function SearchBar({ filters, onUpdate }: SearchBarProps) {
     const trimmed = value.trim();
     if (NCT_ID_PATTERN.test(trimmed)) {
       onUpdate({ nctId: trimmed.toUpperCase(), query: "", term: "", condition: "", intervention: "" });
+      setUnrecognizedQuery(false);
       return;
     }
 
@@ -65,9 +71,15 @@ export function SearchBar({ filters, onUpdate }: SearchBarProps) {
         condition: classified.condition,
         intervention: classified.intervention,
       });
+      // Nothing was recognized as a specific drug or condition at all — only flag this for
+      // multi-word queries, since a single unrecognized keyword is plausibly an intentional
+      // general search rather than a missed drug+condition pair.
+      const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
+      setUnrecognizedQuery(!classified.condition && !classified.intervention && wordCount >= 2);
       return;
     }
 
+    setUnrecognizedQuery(false);
     onUpdate({
       nctId: "",
       query: value,
@@ -127,6 +139,21 @@ export function SearchBar({ filters, onUpdate }: SearchBarProps) {
           ))}
         </select>
       </form>
+
+      {unrecognizedQuery && (
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          Didn't recognize this as a specific drug or condition — results use a general keyword
+          search instead.{" "}
+          <button
+            type="button"
+            onClick={() => setAdvancedOpen(true)}
+            className="font-medium text-accent-700 hover:underline dark:text-accent-400"
+          >
+            Try Advanced search
+          </button>{" "}
+          for precise field control.
+        </p>
+      )}
 
       <button
         type="button"

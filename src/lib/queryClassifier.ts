@@ -247,14 +247,22 @@ export function classifyFreeText(input: string): ClassifiedQuery {
   }
 
   if (pending.length > 0) {
-    // A modifier word (or bare number) here is a trailing qualifier with
-    // nothing after it — still attach it backward to whatever field was
-    // last built, capped at 3 words so an unrelated trailing sentence
-    // doesn't get silently absorbed. A plain unclassified word gets one
-    // more chance at the standalone drug guess before falling back to it.
+    // The standalone-drug-name guess is only trustworthy when at least one
+    // OTHER word in the query already gave a real dictionary signal
+    // (`lastField` set) — that's what correctly separates "prednisone" out
+    // of "muscular dystrophy prednisone", because "muscular"/"dystrophy"
+    // already established a condition anchor. When NOTHING in the query
+    // matched any dictionary at all (e.g. "myasthenia gravis
+    // pyridostigmine" — none of those three words are in any list here),
+    // there is no anchor to weigh the guess against, and every long
+    // alphabetic word would look equally "drug-shaped" — guessing would
+    // dump the entire phrase into `intervention`, which is worse than not
+    // guessing. In that case, fall back to plain full-text `term` instead,
+    // same as a completely unrecognized query always has — the registry's
+    // own search still runs across all fields, it just isn't split.
     const remainder: string[] = [];
     for (const { word, label } of pending) {
-      if (label === "unclassified" && looksLikeDrugName(word)) {
+      if (lastField && label === "unclassified" && looksLikeDrugName(word)) {
         intervention.push(word);
       } else {
         remainder.push(word);
