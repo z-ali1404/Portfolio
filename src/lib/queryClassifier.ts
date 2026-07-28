@@ -100,56 +100,70 @@ export interface ClassifiedQuery {
  * space-joined per-field strings — the same shape Advanced Search's
  * Condition/Intervention inputs already produce, so both paths share one
  * query-building and one re-ranking implementation downstream.
+ *
+ * Real medical queries are usually short noun phrases where a modifier
+ * word sits directly next to the field-defining word it describes —
+ * "muscle pain", "type 2 diabetes", "chronic kidney disease". Classifying
+ * each word in total isolation would strand those modifiers ("muscle",
+ * "type", "2") in the generic-text fallback even though the head word
+ * ("pain", "diabetes") was correctly recognized, which under-counts and
+ * under-ranks results for ANY multi-word condition or intervention name,
+ * not just one specific example. So unclassified words are grouped with
+ * whichever recognized field-word they sit immediately next to: a run of
+ * unclassified words immediately followed by a classified word attaches
+ * forward to that word's field (the common "[modifier] [noun]" pattern in
+ * English); a trailing run with nothing classified after it attaches
+ * backward to whichever field was most recently seen, but only up to 3
+ * words, so an unrelated trailing sentence doesn't get silently absorbed
+ * into a structured field it has nothing to do with.
  */
 export function classifyFreeText(input: string): ClassifiedQuery {
   const tokens = input.trim().split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return { intervention: "", condition: "", term: "" };
+
+  const labels = tokens.map(classifyToken);
+
+  // Whole query is a single unrecognized word that looks like a drug name
+  // (e.g. searching just "semaglutide") — same single-word auto-detect
+  // behavior as before this classifier existed.
+  if (tokens.length === 1 && labels[0] === "unclassified" && looksLikeDrugName(tokens[0])) {
+    return { intervention: tokens[0], condition: "", term: "" };
+  }
+
   const intervention: string[] = [];
   const condition: string[] = [];
-  const unclassified: string[] = [];
+  const term: string[] = [];
+  let pending: string[] = [];
+  let lastField: "intervention" | "condition" | undefined;
 
-  for (const token of tokens) {
-    const field = classifyToken(token);
-    if (field === "intervention") intervention.push(token);
-    else if (field === "condition") condition.push(token);
-    else unclassified.push(token);
-  }
+  const flushPendingTo = (field: "intervention" | "condition") => {
+    if (pending.length === 0) return;
+    (field === "intervention" ? intervention : condition).push(...pending);
+    pending = [];
+  };
 
-  // A single unclassified token that "looks like a drug name" (long,
-  // consonant-heavy, no dictionary/suffix hit) is treated as an
-  // intervention guess when nothing else gave a stronger signal — mirrors
-  // the old single-word auto-detect behavior for a query that's just one
-  // unrecognized word on its own (e.g. "semaglutide").
-  if (unclassified.length === 1 && intervention.length === 0 && condition.length === 0) {
-    if (looksLikeDrugName(unclassified[0])) {
-      return { intervention: unclassified[0], condition: "", term: "" };
+  for (let i = 0; i < tokens.length; i++) {
+    const field = labels[i];
+    if (field === "unclassified") {
+      pending.push(tokens[i]);
+      continue;
     }
+    flushPendingTo(field);
+    (field === "intervention" ? intervention : condition).push(tokens[i]);
+    lastField = field;
   }
 
-  // A single remaining unclassified token alongside an *already recognized*
-  // condition (or intervention) word is very likely the other half of a
-  // two-field query — e.g. "paracetamol headache": "headache" hits the
-  // condition dictionary, "paracetamol" hits neither dictionary nor the
-  // suffix pattern, but with a condition already found and exactly one
-  // leftover word, that word is almost certainly the drug being asked
-  // about. This is what makes "paracetamol headache" resolve to
-  // Intervention=paracetamol AND Condition=headache instead of leaving
-  // "paracetamol" stranded in the generic-text fallback. Deliberately only
-  // fires when exactly one word is left unexplained — with two or more
-  // leftover words there's no way to guess which one pairs with which
-  // field, so they all fall through to `term` as intended.
-  if (unclassified.length === 1) {
-    if (condition.length > 0 && intervention.length === 0) {
-      intervention.push(unclassified[0]);
-      unclassified.length = 0;
-    } else if (intervention.length > 0 && condition.length === 0) {
-      condition.push(unclassified[0]);
-      unclassified.length = 0;
+  if (pending.length > 0) {
+    if (lastField && pending.length <= 3) {
+      flushPendingTo(lastField);
+    } else {
+      term.push(...pending);
     }
   }
 
   return {
     intervention: intervention.join(" "),
     condition: condition.join(" "),
-    term: unclassified.join(" "),
+    term: term.join(" "),
   };
 }
