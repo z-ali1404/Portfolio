@@ -1,5 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { SummaryData } from "@/types/summary";
+import type { SummaryTab } from "@/config/roleConfig";
+import { useRole } from "@/context/RoleContext";
 import { DesignQualityPanel } from "@/components/summary/DesignQualityPanel";
 import { ComparatorsAndConditions } from "@/components/summary/ComparatorsAndConditions";
 import { SponsorBreakdownSection } from "@/components/summary/SponsorBreakdownSection";
@@ -7,8 +9,7 @@ import { EnrollmentDistributionChart } from "@/components/summary/EnrollmentDist
 import { TimelineChart } from "@/components/summary/TimelineChart";
 import { GeographicSpreadSection } from "@/components/summary/GeographicSpreadSection";
 
-const TABS = ["Design & Quality", "Landscape", "Scale & Timeline", "Geography"] as const;
-type Tab = (typeof TABS)[number];
+type Tab = SummaryTab;
 
 interface ExpandedSummaryDetailProps {
   data: SummaryData;
@@ -21,7 +22,9 @@ interface ExpandedSummaryDetailProps {
  * The full detail view, organized as tabs rather than one long stacked
  * scroll — only one tab's content is on screen at a time by default, so
  * drilling into e.g. "Design & Quality" doesn't also force Geography and
- * Sponsors to take up scroll space.
+ * Sponsors to take up scroll space. Tab order and the default active tab
+ * come from the active role's config (`summaryTabOrder`) — the same 4 tabs
+ * always exist for every role, only which one leads changes.
  */
 export function ExpandedSummaryDetail({
   data,
@@ -29,12 +32,21 @@ export function ExpandedSummaryDetail({
   onSelectCondition,
   onSelectSponsor,
 }: ExpandedSummaryDetailProps) {
-  const [activeTab, setActiveTab] = useState<Tab>("Design & Quality");
+  const { config } = useRole();
+  const tabs = config.summaryTabOrder;
+  const [activeTab, setActiveTab] = useState<Tab>(tabs[0]);
+
+  // Re-pick the default tab when the role (and so its preferred order) changes, so switching
+  // roles while already expanded reflects the new emphasis rather than staying on a stale tab.
+  useEffect(() => {
+    setActiveTab(tabs[0]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config.id]);
 
   return (
     <div className="pt-2">
       <div className="flex flex-wrap gap-1.5 border-b border-slate-200 pb-3 dark:border-slate-800">
-        {TABS.map((tab) => (
+        {tabs.map((tab) => (
           <button
             key={tab}
             type="button"

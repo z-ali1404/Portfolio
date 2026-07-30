@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { TrialDetail, TrialSummary } from "@/types/clinicalTrials";
 import { getStudyByNctId, ClinicalTrialsApiError } from "@/api/clinicalTrialsApi";
 import { parseStudyDetail } from "@/lib/parseStudy";
 import { formatDate, formatEnrollment, formatPhases, formatStatus, formatStudyType, truncate } from "@/lib/formatters";
-import { Badge } from "@/components/ui/Badge";
+import { Badge, type BadgeTone } from "@/components/ui/Badge";
+import { useRole } from "@/context/RoleContext";
+import type { BadgeKey } from "@/config/roleConfig";
 import { DetailSection } from "@/components/detail/DetailSection";
 import { EvidenceReviewPanel } from "@/components/detail/EvidenceReviewPanel";
 import {
@@ -20,13 +22,36 @@ import {
 
 type DetailFetchState = "idle" | "loading" | "error";
 
+/** Builds the badge list for a card in whatever order the active role's config prefers — the
+ *  same five badges always render (nothing is hidden per role), only their order changes, so this
+ *  stays a pure reordering rather than a per-role fork of the card's markup. */
+function buildBadges(
+  summary: TrialSummary,
+  status: { label: string; tone: BadgeTone },
+  order: BadgeKey[]
+): { key: BadgeKey; node: ReactNode }[] {
+  const byKey: Partial<Record<BadgeKey, ReactNode>> = {
+    status: <Badge tone={status.tone}>{status.label}</Badge>,
+    phase: <Badge tone="neutral">{formatPhases(summary.phases)}</Badge>,
+    studyType: <Badge tone="neutral">{formatStudyType(summary.studyType)}</Badge>,
+    results: summary.hasResults ? <Badge tone="accent">Results posted</Badge> : undefined,
+    match: summary.matchLabel ? (
+      <Badge tone={(summary.matchScore ?? 0) >= 3 ? "accent" : "neutral"}>{summary.matchLabel}</Badge>
+    ) : undefined,
+  };
+
+  return order.filter((key) => byKey[key] !== undefined).map((key) => ({ key, node: byKey[key] }));
+}
+
 export function TrialCard({ summary }: { summary: TrialSummary }) {
   const [expanded, setExpanded] = useState(false);
   const [detail, setDetail] = useState<TrialDetail | undefined>(undefined);
   const [detailState, setDetailState] = useState<DetailFetchState>("idle");
   const [detailError, setDetailError] = useState<string | undefined>(undefined);
+  const { config: roleConfig } = useRole();
 
   const status = formatStatus(summary.overallStatus);
+  const badges = buildBadges(summary, status, roleConfig.cardBadgeOrder);
 
   async function handleToggle() {
     const next = !expanded;
@@ -50,13 +75,9 @@ export function TrialCard({ summary }: { summary: TrialSummary }) {
     <article className="rounded-xl border border-slate-200 bg-white shadow-card transition hover:shadow-card-hover dark:border-slate-800 dark:bg-slate-900">
       <div className="p-5">
         <div className="flex flex-wrap items-center gap-1.5">
-          <Badge tone={status.tone}>{status.label}</Badge>
-          <Badge tone="neutral">{formatPhases(summary.phases)}</Badge>
-          <Badge tone="neutral">{formatStudyType(summary.studyType)}</Badge>
-          {summary.hasResults && <Badge tone="accent">Results posted</Badge>}
-          {summary.matchLabel && (
-            <Badge tone={(summary.matchScore ?? 0) >= 3 ? "accent" : "neutral"}>{summary.matchLabel}</Badge>
-          )}
+          {badges.map(({ key, node }) => (
+            <span key={key}>{node}</span>
+          ))}
         </div>
 
         <h2 className="mt-2.5 text-base font-semibold leading-snug text-slate-900 dark:text-white">
@@ -72,7 +93,11 @@ export function TrialCard({ summary }: { summary: TrialSummary }) {
           >
             {summary.nctId}
           </a>
-          {summary.leadSponsor && <span>{summary.leadSponsor}</span>}
+          {summary.leadSponsor && (
+            <span className={roleConfig.emphasizeSponsorOnCard ? "font-medium text-slate-600 dark:text-slate-300" : ""}>
+              {summary.leadSponsor}
+            </span>
+          )}
           {summary.lastUpdatePostDate && <span>Updated {formatDate(summary.lastUpdatePostDate)}</span>}
         </div>
 

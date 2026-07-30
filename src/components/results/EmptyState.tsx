@@ -1,8 +1,12 @@
+import { useRole } from "@/context/RoleContext";
+
 interface EmptyStateProps {
   variant: "no-query" | "no-results";
 }
 
 export function EmptyState({ variant }: EmptyStateProps) {
+  const { config } = useRole();
+
   return (
     <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-slate-300 bg-slate-50/60 px-6 py-16 text-center dark:border-slate-700 dark:bg-slate-900/40">
       <svg viewBox="0 0 24 24" fill="none" className="h-10 w-10 text-slate-300 dark:text-slate-600">
@@ -23,6 +27,9 @@ export function EmptyState({ variant }: EmptyStateProps) {
             Try a condition like "non-small cell lung cancer", an intervention, a sponsor name, or
             an NCT ID.
           </p>
+          {config.emptyStateHint && (
+            <p className="max-w-sm text-xs text-slate-400 dark:text-slate-500">{config.emptyStateHint}</p>
+          )}
         </>
       ) : (
         <>

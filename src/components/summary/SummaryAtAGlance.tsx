@@ -1,5 +1,6 @@
 import type { SummaryData } from "@/types/summary";
 import { Chevron, HoverPopover, InlineStackedBar } from "@/components/summary/charts";
+import { useRole } from "@/context/RoleContext";
 
 interface SummaryAtAGlanceProps {
   data: SummaryData;
@@ -36,15 +37,6 @@ function summarizeStatuses(statusCounts: SummaryData["overview"]["statusCounts"]
   return { recruiting, completed, terminated, other, otherBreakdown };
 }
 
-function biasHeadline(data: SummaryData): string {
-  const randomization = data.biasLandscape.randomization;
-  const lowRisk = randomization.buckets.find((b) => b.label === "Low risk");
-  if (!lowRisk || randomization.totalConsidered === 0) {
-    return "Bias/quality signals not clearly reported across this result set.";
-  }
-  return `${lowRisk.percent}% of trials show low risk of bias in randomization.`;
-}
-
 /**
  * The compact, always-visible summary: 4-5 decision-relevant data points
  * only. Everything else (design breakdown, full bias landscape, sponsors,
@@ -53,6 +45,7 @@ function biasHeadline(data: SummaryData): string {
  * before the user asks for more.
  */
 export function SummaryAtAGlance({ data, expanded, onToggleExpanded, onSelectPhase }: SummaryAtAGlanceProps) {
+  const { config } = useRole();
   const { overview, phaseDistribution } = data;
   const statuses = summarizeStatuses(overview.statusCounts);
 
@@ -107,7 +100,7 @@ export function SummaryAtAGlance({ data, expanded, onToggleExpanded, onSelectPha
         <InlineStackedBar segments={phaseSegments} onSelectSegment={onSelectPhase} />
       </div>
 
-      <p className="mt-4 text-sm text-slate-700 dark:text-slate-300">{biasHeadline(data)}</p>
+      <p className="mt-4 text-sm text-slate-700 dark:text-slate-300">{config.summaryHeadline(data)}</p>
 
       <button
         type="button"

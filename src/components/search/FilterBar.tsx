@@ -1,5 +1,6 @@
 import type { TrialFilters } from "@/hooks/useTrialSearch";
 import type { SortOption } from "@/types/clinicalTrials";
+import { useRole } from "@/context/RoleContext";
 
 interface FilterBarProps {
   filters: TrialFilters;
@@ -41,9 +42,49 @@ function toggleValue(list: string[], value: string): string[] {
   return list.includes(value) ? list.filter((v) => v !== value) : [...list, value];
 }
 
+/** A suggested chip is "active" when every filter value it would apply is already set. */
+function isSuggestionActive(filters: TrialFilters, suggestion: Partial<TrialFilters>): boolean {
+  return Object.entries(suggestion).every(([key, value]) => {
+    const current = filters[key as keyof TrialFilters];
+    if (Array.isArray(value)) return Array.isArray(current) && value.every((v) => current.includes(v));
+    return current === value;
+  });
+}
+
 export function FilterBar({ filters, onUpdate, onClear, activeFilterCount }: FilterBarProps) {
+  const { config } = useRole();
+
   return (
-    <div className="flex flex-wrap items-center gap-3">
+    <div className="space-y-2.5">
+      {config.suggestedFilters.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-xs font-medium text-slate-400 dark:text-slate-500">
+            Suggested for {config.label}:
+          </span>
+          {config.suggestedFilters.map((suggestion) => {
+            const active = isSuggestionActive(filters, suggestion.filters);
+            return (
+              <button
+                key={suggestion.label}
+                type="button"
+                onClick={() => onUpdate(suggestion.filters)}
+                className={`rounded-full border px-2.5 py-1 text-xs font-medium transition ${
+                  active
+                    ? "border-accent-300 bg-accent-50 text-accent-800 dark:border-accent-700 dark:bg-accent-500/10 dark:text-accent-300"
+                    : "border-slate-300 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                }`}
+              >
+                {suggestion.label}
+              </button>
+            );
+          })}
+          {config.suggestedFilterNote && (
+            <span className="text-xs text-slate-400 dark:text-slate-500">· {config.suggestedFilterNote}</span>
+          )}
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center gap-3">
       <MultiSelect
         label="Status"
         options={STATUS_OPTIONS}
@@ -94,6 +135,7 @@ export function FilterBar({ filters, onUpdate, onClear, activeFilterCount }: Fil
           Clear filters
         </button>
       )}
+      </div>
     </div>
   );
 }

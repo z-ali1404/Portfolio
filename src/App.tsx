@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
 import { SearchBar } from "@/components/search/SearchBar";
@@ -6,10 +6,13 @@ import { FilterBar } from "@/components/search/FilterBar";
 import { ResultsSummary } from "@/components/results/ResultsSummary";
 import { TrialList } from "@/components/results/TrialList";
 import { SummaryView } from "@/components/summary/SummaryView";
+import { RoleSelector } from "@/components/role/RoleSelector";
 import { useTrialSearch } from "@/hooks/useTrialSearch";
+import { useRole } from "@/context/RoleContext";
 
 export default function App() {
   const trialListRef = useRef<HTMLDivElement>(null);
+  const { config: roleConfig } = useRole();
   const {
     filters,
     updateFilters,
@@ -24,12 +27,22 @@ export default function App() {
     hasQuery,
   } = useTrialSearch();
 
+  // Role switching resets the sort to that role's default emphasis — e.g. Hospital Team defaults
+  // to "recently updated" instead of relevance — without touching any other filter or re-fetching
+  // anything beyond the normal debounced search that a sort change already triggers.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    updateFilters({ sort: roleConfig.defaultSort });
+  }, [roleConfig.id]);
+
   return (
     <div className="flex min-h-screen flex-col">
       <Header />
 
       <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 sm:px-6 lg:px-8">
-        <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-card dark:border-slate-800 dark:bg-slate-900">
+        <RoleSelector />
+
+        <section className="mt-4 space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-card dark:border-slate-800 dark:bg-slate-900">
           <SearchBar filters={filters} onUpdate={updateFilters} />
           <FilterBar
             filters={filters}
